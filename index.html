@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laberinto de Comercio Exterior Interactivo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .grid-cell {
+            transition: all 0.3s ease;
+        }
+        .correct-path {
+            background-color: #dcfce7 !important;
+            border-color: #22c55e !important;
+            color: #166534 !important;
+        }
+        .error-path {
+            background-color: #fee2e2 !important;
+            border-color: #ef4444 !important;
+            color: #991b1b !important;
+        }
+        .active-step {
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+            border-width: 3px;
+        }
+        .hint-path {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex flex-col items-center p-4 font-sans">
+
+    <div class="max-w-4xl w-full bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
+        <!-- Header -->
+        <div class="bg-blue-600 p-6 text-white text-center">
+            <h1 class="text-3xl font-bold mb-2 flex justify-center items-center gap-2">
+                <i data-lucide="ship"></i> La Ruta de la Exportación
+            </h1>
+            <p class="text-blue-100 italic">Identifica y haz clic en los pasos logísticos en el orden correcto.</p>
+        </div>
+
+        <div class="p-6 grid grid-cols-1 md:grid-cols-4 gap-6">
+            <!-- Sidebar Info -->
+            <div class="md:col-span-1 space-y-4">
+                <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                    <h2 class="font-bold text-blue-800 mb-2 flex items-center gap-1">
+                        <i data-lucide="info" class="w-4 h-4"></i> Estado
+                    </h2>
+                    <p id="status-msg" class="text-sm text-blue-700 font-medium">Esperando inicio...</p>
+                    <div class="mt-4 bg-slate-200 h-2 w-full rounded-full overflow-hidden">
+                        <div id="progress-bar" class="bg-green-500 h-full w-0 transition-all duration-500"></div>
+                    </div>
+                </div>
+                
+                <button onclick="showSolution()" class="w-full py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg flex items-center justify-center gap-2 transition-colors font-semibold border border-amber-200">
+                    <i data-lucide="lightbulb" class="w-4 h-4"></i> Ver Solución
+                </button>
+
+                <button onclick="resetGame()" class="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                    <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Reiniciar
+                </button>
+            </div>
+
+            <!-- Game Board -->
+            <div class="md:col-span-3 grid grid-cols-3 gap-3" id="game-board">
+                <!-- Se genera dinámicamente -->
+            </div>
+        </div>
+
+        <!-- Footer / Feedback -->
+        <div id="feedback-area" class="p-6 text-center border-t border-slate-100 hidden bg-green-50">
+            <div id="win-message" class="hidden">
+                <h2 class="text-2xl font-bold text-green-700 flex justify-center items-center gap-2">
+                    ¡Exportación Exitosa! <i data-lucide="party-popper"></i>
+                </h2>
+                <p class="text-green-600 mt-2 font-medium">Has completado todos los trámites correctamente y la mercancía está en Alta Mar.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const sequence = [
+            "Fábrica", 
+            "Embalaje", 
+            "Factura Comercial", 
+            "Lista de Empaque", 
+            "Transporte Local", 
+            "Certificado Origen", 
+            "Aduana de Salida", 
+            "Despacho Aduanal", 
+            "Puerto de Enlace", 
+            "Carga en Buque", 
+            "Meta: Alta Mar"
+        ];
+
+        const allItems = [
+            { text: "Fábrica", type: "path" },
+            { text: "Error de Envase", type: "block" },
+            { text: "Embalaje", type: "path" },
+            { text: "Contrabando", type: "block" },
+            { text: "Factura Comercial", type: "path" },
+            { text: "Falta de Pago", type: "block" },
+            { text: "Lista de Empaque", type: "path" },
+            { text: "Documento Falso", type: "block" },
+            { text: "Transporte Local", type: "path" },
+            { text: "Huelga Transporte", type: "block" },
+            { text: "Certificado Origen", type: "path" },
+            { text: "Multa Aduanera", type: "block" },
+            { text: "Aduana de Salida", type: "path" },
+            { text: "Sanción", type: "block" },
+            { text: "Despacho Aduanal", type: "path" },
+            { text: "Puerto de Enlace", type: "path" },
+            { text: "Clima Adverso", type: "block" },
+            { text: "Carga en Buque", type: "path" },
+            { text: "Error de Estiba", type: "block" },
+            { text: "Retención", type: "block" },
+            { text: "Meta: Alta Mar", type: "path" }
+        ];
+
+        let currentStepIndex = 0;
+        let gameActive = true;
+        let buttonsMap = {};
+
+        function initIcons() {
+            lucide.createIcons();
+        }
+
+        function createBoard() {
+            const board = document.getElementById('game-board');
+            board.innerHTML = '';
+            buttonsMap = {};
+            
+            allItems.forEach((item, index) => {
+                const btn = document.createElement('button');
+                btn.className = `grid-cell p-4 rounded-xl border-2 border-slate-200 bg-white text-sm font-semibold flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md h-28 relative overflow-hidden`;
+                
+                // Iconos base para ciertos puntos (no revelan si es bloqueo o no)
+                let iconName = "package";
+                if (item.text === "Fábrica") iconName = "factory";
+                if (item.text === "Meta: Alta Mar") iconName = "waves";
+                
+                btn.innerHTML = `
+                    <i data-lucide="${iconName}" class="w-5 h-5 mb-2 text-slate-400"></i>
+                    <span>${item.text}</span>
+                    <div class="status-icon absolute top-2 right-2"></div>
+                `;
+                
+                btn.onclick = () => handleMove(item.text, btn);
+                board.appendChild(btn);
+                buttonsMap[item.text] = btn;
+            });
+            initIcons();
+            updateStatus("Inicia en la Fábrica");
+        }
+
+        function handleMove(text, element) {
+            if (!gameActive) return;
+
+            const targetText = sequence[currentStepIndex];
+
+            if (text === targetText) {
+                element.classList.add('correct-path', 'active-step');
+                element.querySelector('.status-icon').innerHTML = '<i data-lucide="check-circle-2" class="w-4 h-4 text-green-600"></i>';
+                element.disabled = true;
+                currentStepIndex++;
+                
+                const progress = (currentStepIndex / sequence.length) * 100;
+                document.getElementById('progress-bar').style.width = `${progress}%`;
+
+                if (currentStepIndex === sequence.length) {
+                    gameWin();
+                } else {
+                    updateStatus(`Siguiente: ${sequence[currentStepIndex]}`);
+                }
+                lucide.createIcons();
+            } else {
+                element.classList.add('error-path');
+                element.querySelector('.status-icon').innerHTML = '<i data-lucide="x-circle" class="w-4 h-4 text-red-600"></i>';
+                updateStatus("¡Paso incorrecto! Analiza la lógica COMEX.");
+                
+                setTimeout(() => {
+                    element.classList.remove('error-path');
+                    element.querySelector('.status-icon').innerHTML = '';
+                }, 1500);
+            }
+        }
+
+        function showSolution() {
+            if (!gameActive) return;
+            
+            updateStatus("Mostrando ruta correcta...");
+            
+            sequence.forEach((step, index) => {
+                const btn = buttonsMap[step];
+                if (btn) {
+                    setTimeout(() => {
+                        btn.classList.add('hint-path');
+                        setTimeout(() => btn.classList.remove('hint-path'), 2000);
+                    }, index * 150);
+                }
+            });
+        }
+
+        function updateStatus(msg) {
+            document.getElementById('status-msg').innerText = msg;
+        }
+
+        function gameWin() {
+            gameActive = false;
+            document.getElementById('feedback-area').classList.remove('hidden');
+            document.getElementById('win-message').classList.remove('hidden');
+            updateStatus("¡Operación Completada!");
+            lucide.createIcons();
+        }
+
+        function resetGame() {
+            currentStepIndex = 0;
+            gameActive = true;
+            document.getElementById('progress-bar').style.width = `0%`;
+            document.getElementById('feedback-area').classList.add('hidden');
+            document.getElementById('win-message').classList.add('hidden');
+            createBoard();
+        }
+
+        window.onload = createBoard;
+    </script>
+</body>
+</html>
